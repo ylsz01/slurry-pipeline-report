@@ -1,0 +1,9 @@
+*.exe
+*.dcu
+*.ddp
+*.dfm
+*.~*
+*.mdb
+node_modules/
+.DS_Store
+Thumbs.db

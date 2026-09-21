@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>F-Rev F 浆体管道专家系统 — 数据路由可视化</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0e17; color: #e0e0e0; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; overflow: hidden; }
+#header { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: linear-gradient(90deg, #0d1520, #162040); border-bottom: 1px solid #1a3060; display: flex; align-items: center; padding: 0 20px; z-index: 50; }
+#header h1 { font-size: 16px; color: #7eb8ff; font-weight: 500; }
+#header .subtitle { font-size: 12px; color: #556; margin-left: 16px; }
+#canvas { width: 100vw; height: 100vh; padding-top: 48px; }
+svg { display: block; }
+.node { cursor: pointer; }
+.node rect { rx: 6; ry: 6; stroke-width: 1.5; transition: all 0.25s ease; }
+.node:hover rect { filter: brightness(1.4) drop-shadow(0 0 6px currentColor); stroke-width: 2.5; }
+.node text { fill: #ddd; text-anchor: middle; pointer-events: none; font-size: 10.5px; }
+.node .node-title { font-weight: 600; font-size: 11px; fill: #fff; }
+.edge { fill: none; stroke-width: 1.5; opacity: 0.45; transition: all 0.25s ease; }
+.edge-label { font-size: 8.5px; fill: #667; text-anchor: middle; pointer-events: none; transition: all 0.25s ease; }
+.layer-band { opacity: 0.04; }
+.layer-title { font-size: 12px; fill: #445; font-weight: 600; text-anchor: middle; letter-spacing: 1px; }
+#legend { position: fixed; top: 58px; right: 12px; background: rgba(13,21,32,0.96); padding: 14px 16px; border-radius: 8px; border: 1px solid #1a3060; font-size: 11px; width: 200px; z-index: 40; }
+#legend h3 { color: #7eb8ff; margin-bottom: 10px; font-size: 13px; font-weight: 500; }
+#legend .item { display: flex; align-items: center; margin: 5px 0; }
+#legend .dot { width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; flex-shrink: 0; }
+#legend hr { border: none; border-top: 1px solid #1a3060; margin: 10px 0; }
+#legend .hint { color: #556; font-size: 10px; line-height: 1.6; }
+#tooltip { position: fixed; background: rgba(13,21,32,0.97); border: 1px solid #4a9eff; border-radius: 8px; padding: 12px 14px; font-size: 11px; max-width: 320px; pointer-events: none; display: none; z-index: 100; line-height: 1.6; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+#tooltip .title { color: #7eb8ff; font-weight: 600; font-size: 12px; margin-bottom: 6px; }
+#tooltip .desc { color: #aab; }
+.highlight { opacity: 1 !important; stroke-width: 2.5 !important; }
+.highlight-edge { opacity: 0.9 !important; stroke-width: 2.5 !important; }
+.dim { opacity: 0.08 !important; }
+.dim-label { opacity: 0.05 !important; }
+#controls { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; z-index: 40; background: rgba(13,21,32,0.9); padding: 8px 12px; border-radius: 8px; border: 1px solid #1a3060; }
+#controls button { background: #111828; border: 1px solid #2a3050; color: #99a; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.2s; }
+#controls button:hover { background: #1a2848; border-color: #4a9eff; color: #cde; }
+#controls button.active { background: #1a3568; border-color: #4a9eff; color: #fff; }
+#info-panel { position: fixed; bottom: 60px; right: 12px; background: rgba(13,21,32,0.96); padding: 12px 14px; border-radius: 8px; border: 1px solid #1a3060; font-size: 11px; max-width: 300px; z-index: 40; display: none; line-height: 1.6; max-height: 320px; overflow-y: auto; }
+#info-panel .ptitle { color: #7eb8ff; font-weight: 600; margin-bottom: 4px; }
+#info-panel .close { position: absolute; top: 6px; right: 10px; cursor: pointer; color: #556; font-size: 14px; }
+#info-panel .close:hover { color: #fff; }
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>F-Rev F 浆体管道专家系统</h1>
+  <span class="subtitle">数据路由可视化 | 点击节点追踪路径 | 点击空白重置</span>
+</div>
+<svg id="canvas"></svg>
+<div id="legend">
+  <h3>数据层分类</h3>
+  <div class="item"><div class="dot" style="background:#2ecc71"></div>1. 外部数据源</div>
+  <div class="item"><div class="dot" style="background:#3498db"></div>2. 数据加载层</div>
+  <div class="item"><div class="dot" style="background:#9b59b6"></div>3. 内存数据模型</div>
+  <div class="item"><div class="dot" style="background:#e67e22"></div>4. 计算引擎</div>
+  <div class="item"><div class="dot" style="background:#e74c3c"></div>5. 专家控制/检测</div>
+  <div class="item"><div class="dot" style="background:#1abc9c"></div>6. 输出/持久化</div>
+  <div class="item"><div class="dot" style="background:#f39c12"></div>7. 用户界面</div>
+  <hr>
+  <div class="hint">点击节点 - 高亮上下游路径<br>点击空白 - 重置视图<br>悬停节点 - 查看详情</div>
+</div>
+<div id="tooltip"></div>
+<div id="controls">
+  <button onclick="filterLayer('all',this)" class="active">全部</button>
+  <button onclick="filterLayer('input',this)">数据输入</button>
+  <button onclick="filterLayer('compute',this)">计算引擎</button>
+  <button onclick="filterLayer('expert',this)">专家控制</button>
+  <button onclick="filterLayer('output',this)">输出/界面</button>
+</div>
+<div id="info-panel">
+  <span class="close" onclick="this.parentElement.style.display='none'">x</span>
+  <div class="ptitle"></div>
+  <div class="pcontent"></div>
+</div>
+<script>
+const nodes=[
+{id:'mdb',x:50,y:90,w:130,h:48,title:'Access DB (.mdb)',lines:['Access DB','(.mdb)'],color:'#2ecc71',layer:'input',desc:'Microsoft Access 数据库,存储所有设备配置、管道参数、流体物性、初始化参数。包含20+张表(CENPUMPS,VALVES,INSTRUMENTS,SECTIONS,LOCATIONS,POINTS等)。'},
+{id:'opc_scada',x:50,y:180,w:130,h:48,title:'OPC/SCADA (PLC/DCS)',lines:['OPC/SCADA','(PLC/DCS)'],color:'#2ecc71',layer:'input',desc:'通过OPC DA接口(sopcdaauto.dll)连接现场PLC/DCS。读写寄存器实现:仪表数据采集、泵阀控制指令下发、泄漏报警写回。'},
+{id:'user_input',x:50,y:270,w:130,h:48,title:'用户输入 (Init/Editor)',lines:['用户输入','(Init/Editor)'],color:'#2ecc71',layer:'input',desc:'Init界面:DeltaTime(0.01~2s)/BaseConc(0~25%)/EntAir(0~0.01)/LiquidTemp。15个设备编辑器修改泵/阀/控制器/储罐参数。'},
+{id:'load_db',x:240,y:90,w:140,h:48,title:'LoadFromDatabase',lines:['LoadFromDatabase','(ADO全量加载)'],color:'#3498db',layer:'input',desc:'启动时从Access加载全部数据。15+个Load过程:LoadCenPumps/LoadChokes/LoadValves/LoadPDPumps/LoadControllers/LoadInstruments/LoadTanks/LoadPRDs/LoadSurgeTanks等。'},
+{id:'read_instr',x:240,y:180,w:140,h:48,title:'ReadInstrData',lines:['ReadInstrData','(OPC周期读取)'],color:'#3498db',layer:'input',desc:'每个仿真周期从OPC寄存器读取仪表实时值。OPCRegs[] -> instrument[].trendValue[FLD/CLD/DLT]。FLD=现场值,CLD=计算值,DLT=差值。'},
+{id:'assign_ds',x:240,y:270,w:140,h:48,title:'AssignDataSets',lines:['AssignDataSets','AssignSections'],color:'#3498db',layer:'input',desc:'AssignDataSets:绑定ADO DataSource到全局变量。AssignSections:计算管段派生属性eD=rf/Idiam,XSecArea,B,SonVel。'},
+{id:'equipment',x:440,y:70,w:155,h:60,title:'设备数组',lines:['设备数组(全局)','cenpump[] pdpump[]','valve[] choke[] tank[]'],color:'#9b59b6',layer:'compute',desc:'全局设备数组(Global_Variables_L1):cenpump[501..510]离心泵,pdpump[301..306]隔膜泵,valve[801..854]阀门,choke[]节流阀,controller[] PID控制器,instrument[]仪表,tank[601..604]储罐,prd[]泄压阀,surgeTK[]调压罐'},
+{id:'pipeline',x:440,y:160,w:155,h:55,title:'管道模型',lines:['管道模型(二维数组)','Section[] IPoint[]','Locations[] Pipeline[]'],color:'#9b59b6',layer:'compute',desc:'管道离散化模型(按[SystemIndex,PipelineIndex]索引):Section管段属性(Idiam/rf/GFw/GFs/deltaX/B/PointCount),IPoint计算点(LineP/QPnew/Conc/SG/HGL/SlackFlag),Locations站点位置(km/el/usP/dsP)'},
+{id:'fluid',x:440,y:245,w:155,h:50,title:'流体物性',lines:['流体物性','Liquid/Slurry/Solids'],color:'#9b59b6',layer:'compute',desc:'三类流体物性:Properties_Liquid(temperature/SG/viscosity/vapPress/bulkMod),Properties_Slurry(conc/SG/visCoeff/visExpon/TauCoeff/Rigidity),Properties_Solids(SG/bulkModulus/equalMoist)'},
+{id:'init_vals',x:440,y:325,w:155,h:48,title:'初始化参数',lines:['InitValues[]','DeltaTime/BaseConc'],color:'#9b59b6',layer:'compute',desc:'InitType数组(按系统索引):DeltaTime仿真时间步长(0.01~2.0s),BaseConc基础浓度(0~25%),EntAir夹带空气(0~0.01),LiquidTemp液体温度。持久化到INITILZE表。'},
+{id:'convert',x:440,y:400,w:155,h:48,title:'单位换算TConvert',lines:['TConvert','6维x8信号类型'],color:'#9b59b6',layer:'compute',desc:'TConvert类:6个换算维度(Internal/FromDB/ToScreen/FromUser/FromReg/ToReg),8种信号类型(Pressure/Flow/Level/Power/Density/Speed/Strokes/Temperature)。从CNV_Table加载换算因子。'},
+{id:'simulator',x:660,y:70,w:155,h:55,title:'Simulator(MOC)',lines:['Simulator','MOC特征线法','每dT秒执行'],color:'#e67e22',layer:'compute',desc:'核心水力求解器。遍历所有管段的所有计算点:1.CallBC(NodeID)设置边界条件 2.Hp(sign)计算HGL 3.QP(sign)计算流量 4.更新IPoint[]。使用隐式特征线法(MOC),每dT秒执行一次。'},
+{id:'call_bc',x:660,y:155,w:155,h:55,title:'CallBC(BC路由)',lines:['CallBC','边界条件路由','NodeID分发'],color:'#e67e22',layer:'compute',desc:'根据管段USNodeID/DSNodeID分发:0=ibc_SectionInterface(普通段),110=tbc_Lijiagou_PS1,150=tbc_Lijiagou_TS,210=ibc_LineLeak,220=tbc_Lijiagou_PS2,230=ibc_RamuVS1'},
+{id:'bc_ps',x:660,y:240,w:155,h:50,title:'泵站BC',lines:['泵站边界条件','ibc_RamuPS2/tbc_*','24种运行状态机'],color:'#e67e22',layer:'compute',desc:'泵站边界条件(最复杂):Ramu PS2含6泵(P301-306)+6泄压(RD201-210)+32阀门,24种运行状态(conPumpSta 0-23),由4条件组合(conPump/conP/conPRV/conbp),NR迭代求流量分配'},
+{id:'bc_vs',x:660,y:320,w:155,h:50,title:'阀站BC',lines:['阀站边界条件','ibc_LineValve','ValveStationK/TerminalK'],color:'#e67e22',layer:'compute',desc:'阀站边界条件:ibc_LineValve(DP=k*|Q|*Q),ValveStationK(4种流路组合),TerminalK(16种流路组合),PS2K(8种流路组合),ibc_CMDICValveStations含ES专家控制逻辑'},
+{id:'nr_solver',x:660,y:400,w:155,h:48,title:'NR求解器',lines:['NRTest/FPTest','Newton-Raphson','统一收敛判断'],color:'#e67e22',layer:'compute',desc:'统一非线性方程求解器:NRTest(Newton-Raphson,IMax=24,eps=1e-6,x_new=x-f/df),FPTest(割线法+二分法混合,maxi=100)。用于泵并联分配/储罐HGL/管段流量/PRD流量求解。'},
+{id:'pump_calc',x:880,y:70,w:140,h:50,title:'泵特性计算',lines:['泵特性','tdh/eff/NPSHr','CenPumpSpeed'],color:'#e67e22',layer:'compute',desc:'离心泵:4阶多项式tdh=HR*numSeries*numStages*sum(a[i]*x^i)*s^2,eff=sum(e[i]*x^i),NPSHr=sum(h[i]*x^i)*s^2。隔膜泵:Displacement=factor*VolEff*Plex*Bore^2*Stroke,Flow=60*disp*MaxSPM*ratio'},
+{id:'valve_calc',x:880,y:150,w:140,h:50,title:'阀门特性计算',lines:['阀门特性','ValveKV/ValvePosition','ChokeKc/CDfactor'],color:'#e67e22',layer:'compute',desc:'阀门:Cv-开度特性查表(线性插值VCharacter表),kv=numSeries*13.69213/Cv^2,ValvePosition斜坡+累积行程计数。节流阀:kc=6378.35*(1-beta^4)/CD^2/IDThroat^4,CDfactor Reynolds数修正'},
+{id:'hydraulic',x:880,y:230,w:140,h:50,title:'水力梯度计算',lines:['水力梯度','HydGrad/ff','Darcy-Weisbach'],color:'#e67e22',layer:'compute',desc:'Darcy-Weisbach摩擦因子:层流(Re<2500)f=64/Re,湍流Colebrook显式近似(三级嵌套对数)。HydGrad=sign*gFac*Gconst*f*V^2/D,V=353.68*Q/D^2,Re=1000*SG*D*V/Rigidity。固定:Vconst=353.6777651,Gconst=50983.991'},
+{id:'slurry_calc',x:880,y:310,w:140,h:50,title:'浆体物性计算',lines:['浆体物性','SlurrySG/VR','CoeffRigidity'],color:'#e67e22',layer:'compute',desc:'SlurrySG=1/(conc/SolSG+(1-conc)/LiqSG),SlurryConc反算,VR体积比,CoeffRigidity刚度系数,SonicVelocity(Streeter公式),MixStreamSlurrySG质量守恒混合,PhiSat饱和体积分数'},
+{id:'tank_calc',x:880,y:390,w:140,h:50,title:'储罐/调压罐',lines:['储罐/调压罐','TankLevel','SurgeTankLevel'],color:'#e67e22',layer:'compute',desc:'储罐:dLevel=dT*(Qin-Qout)/3600/(pi/4*D^2),约束OLN<=Level<=OFN。调压罐(多变过程):LiqVol+=dT/3600*Qi,GasVol=TotalVol-LiqVol,GasPress=sP0*(sV0/GasVol)^exponent。双罐HGL:NR迭代分配'},
+{id:'leak_detect',x:880,y:470,w:140,h:50,title:'泄漏检测',lines:['泄漏检测','LDStatusCheck','多仪表投票'],color:'#e74c3c',layer:'expert',desc:'LDStatusCheck 6种场景:VS1/VS2/终端阀门变化,泵速变化(ThreseHoldSpeed+MaxSpeedChange),系统停机(5流路全关),系统启动(至少1流路通)->闭锁LD防误报。多仪表投票判断泄漏。'},
+{id:'expert_ctrl',x:880,y:550,w:140,h:50,title:'专家控制(ES)',lines:['专家控制ES','CheckPressures','CheckWhichValve'],color:'#e74c3c',layer:'expert',desc:'CheckLinePressures遍历计算点检查管线压力,CheckStationPressure站场压力vsSetPoint,CheckWhichValve 8种配置x开/关选阀门(累积行程最少优先),超压开阀/低压关阀/压力调节微调,ChokeTimerSgt防频繁'},
+{id:'pid_ctrl',x:880,y:630,w:140,h:50,title:'PID控制器',lines:['PID控制器','ControllerPosition','泵速优先级选择'],color:'#e74c3c',layer:'expert',desc:'离散PID:pos=V0+direction*(PB/100)*[(1+dT/Ti)*e0-e1+(Td/dT)*(e0-2e1+e2)]。PumpSpeedControllerIndex:5测点x32状态,优先级吸入口>排出口>VS3>SF1>SF4,双控制器取低信号'},
+{id:'save_db',x:1100,y:70,w:130,h:48,title:'SaveToDataBase',lines:['SaveToDataBase','12+ DownLoad*','-> Access DB'],color:'#1abc9c',layer:'output',desc:'写回Access:12+个DownLoad过程(DownLoadCenPumps/Chokes/Controllers/Instruments/PDPumps/PRDs/Registers/SurgeTanks/Tanks/Valves/Systems/Pipelines/Locations/Points)'},
+{id:'opc_write',x:1100,y:148,w:130,h:48,title:'OPC写回',lines:['OPC写回','OPCCommunications','寄存器/报警'],color:'#1abc9c',layer:'output',desc:'写回SCADA/PLC:泵启停(Start/Stop Bit),阀门开/关(CmdOpen/CloseBit),控制器输出,泄漏报警(寄存器871),消息握手(192/193消息)'},
+{id:'log_mgr',x:1100,y:226,w:130,h:48,title:'日志管理',lines:['日志管理','LogManager','帧日志/报警'],color:'#1abc9c',layer:'output',desc:'TLogManager:系统日志(多文件轮转),帧日志(FrameLog),特殊消息(AddSpecialMessage),报警日志(alarmlog)'},
+{id:'trend_rec',x:1100,y:304,w:130,h:48,title:'趋势记录',lines:['趋势记录','TrendRecord','86400条/5天'],color:'#1abc9c',layer:'output',desc:'趋势数据:MaxTrendRecords=86400(5天x5秒),TrendRecordIndex循环写入,每仪表记录trendValue[FLD/CLD/DLT],支持Play/Stop回放(LogTrends.pas)'},
+{id:'excel_exp',x:1100,y:382,w:130,h:48,title:'Excel导出',lines:['Excel导出','ExcelExport','TimePicker'],color:'#1abc9c',layer:'output',desc:'ExcelExport.pas:TimePicker选择时间范围,导出趋势数据/报警记录/设备状态,生成Excel报表'},
+{id:'sys_overview',x:1100,y:460,w:130,h:48,title:'系统总览',lines:['系统总览','SystemOverview','P&ID动态显示'],color:'#f39c12',layer:'output',desc:'主界面SystemOverview.pas:管道P&ID动态显示,设备状态图标(Brass组件),压力/流量/密度实时标签,专家消息区,状态栏(仿真时间/CPU/模式),Initialize按钮触发全流程'},
+{id:'ps_display',x:1100,y:538,w:130,h:48,title:'站场显示',lines:['站场显示','PS1/PS2/VS1-VS4','Terminal'],color:'#f39c12',layer:'output',desc:'各站场详细画面:PS1/PS2泵站,VS1-VS4阀站,Terminal终端站。设备图标+实时数据+控制按钮+趋势图'},
+{id:'editor_dlg',x:1100,y:616,w:130,h:48,title:'设备编辑器',lines:['设备编辑器','15个编辑对话框','CenPump/Valve/...'],color:'#f39c12',layer:'output',desc:'15个设备编辑对话框(Dialogs目录):CenPumpEditor/PDPEditor/ValvesEditor/ChokeEditor/ControllerEditor/TankEditor/SurgeTankEditor/PRDEditor/SpeedControllers/CPumpControl/PDPumpControl/ValveControlUnit/ProgramOptions等'},
+];
+
+const edges=[
+{from:'mdb',to:'load_db',label:'ADO全量加载',color:'#2ecc71'},
+{from:'opc_scada',to:'read_instr',label:'OPC DA寄存器',color:'#2ecc71'},
+{from:'user_input',to:'assign_ds',label:'Init/Editor',color:'#2ecc71'},
+{from:'load_db',to:'equipment',label:'设备数组',color:'#3498db'},
+{from:'load_db',to:'pipeline',label:'管道/管段',color:'#3498db'},
+{from:'load_db',to:'fluid',label:'固体/浆体',color:'#3498db'},
+{from:'load_db',to:'init_vals',label:'初始化参数',color:'#3498db'},
+{from:'load_db',to:'convert',label:'单位换算表',color:'#3498db'},
+{from:'read_instr',to:'equipment',label:'仪表实时值',color:'#3498db'},
+{from:'assign_ds',to:'pipeline',label:'DataSource绑定',color:'#3498db'},
+{from:'equipment',to:'simulator',label:'设备状态',color:'#9b59b6'},
+{from:'pipeline',to:'simulator',label:'管段/计算点',color:'#9b59b6'},
+{from:'fluid',to:'simulator',label:'物性参数',color:'#9b59b6'},
+{from:'init_vals',to:'simulator',label:'DeltaTime',color:'#9b59b6'},
+{from:'simulator',to:'call_bc',label:'遍历管段',color:'#e67e22'},
+{from:'call_bc',to:'bc_ps',label:'PS NodeID',color:'#e67e22'},
+{from:'call_bc',to:'bc_vs',label:'VS NodeID',color:'#e67e22'},
+{from:'bc_ps',to:'nr_solver',label:'NR迭代',color:'#e67e22'},
+{from:'bc_vs',to:'nr_solver',label:'NR迭代',color:'#e67e22'},
+{from:'simulator',to:'pump_calc',label:'泵动态',color:'#e67e22'},
+{from:'simulator',to:'valve_calc',label:'阀动态',color:'#e67e22'},
+{from:'simulator',to:'hydraulic',label:'HGL/QP',color:'#e67e22'},
+{from:'simulator',to:'slurry_calc',label:'物性更新',color:'#e67e22'},
+{from:'simulator',to:'tank_calc',label:'液位更新',color:'#e67e22'},
+{from:'simulator',to:'leak_detect',label:'仪表趋势',color:'#e74c3c'},
+{from:'simulator',to:'expert_ctrl',label:'压力检查',color:'#e74c3c'},
+{from:'expert_ctrl',to:'pid_ctrl',label:'控制器输出',color:'#e74c3c'},
+{from:'pid_ctrl',to:'equipment',label:'SpeedSet反馈',color:'#e74c3c',dashed:true},
+{from:'equipment',to:'save_db',label:'DownLoad*',color:'#1abc9c'},
+{from:'pipeline',to:'save_db',label:'Points/Locations',color:'#1abc9c'},
+{from:'equipment',to:'opc_write',label:'寄存器写回',color:'#1abc9c'},
+{from:'simulator',to:'log_mgr',label:'日志记录',color:'#1abc9c'},
+{from:'simulator',to:'trend_rec',label:'趋势存储',color:'#1abc9c'},
+{from:'trend_rec',to:'excel_exp',label:'导出',color:'#1abc9c'},
+{from:'equipment',to:'sys_overview',label:'设备状态',color:'#f39c12'},
+{from:'pipeline',to:'sys_overview',label:'HGL/压力',color:'#f39c12'},
+{from:'equipment',to:'ps_display',label:'站场数据',color:'#f39c12'},
+{from:'equipment',to:'editor_dlg',label:'编辑参数',color:'#f39c12'},
+{from:'expert_ctrl',to:'sys_overview',label:'ES消息',color:'#f39c12'},
+];
+
+const svg=document.getElementById('canvas');
+const tooltip=document.getElementById('tooltip');
+
+function render(){
+  const W=window.innerWidth,H=window.innerHeight-48;
+  svg.setAttribute('width',W);svg.setAttribute('height',H);
+  svg.setAttribute('viewBox','0 0 '+W+' '+H);svg.innerHTML='';
+  const sx=W/1300,sy=H/720;
+  const scale=Math.min(sx,sy,1.15);
+  const offsetX=(W-1300*scale)/2,offsetY=(H-700*scale)/2;
+
+  // Layer bands
+  [{x:50,w:130,l:'1 数据源'},{x:240,w:140,l:'2 数据加载'},{x:440,w:155,l:'3 内存模型'},{x:660,w:155,l:'4 计算引擎'},{x:880,w:140,l:'5 计算/控制'},{x:1100,w:130,l:'6 输出/界面'}].forEach(function(b){
+    var r=document.createElementNS('http://www.w3.org/2000/svg','rect');
+    r.setAttribute('x',offsetX+b.x*scale-10);r.setAttribute('y',offsetY+50*scale);
+    r.setAttribute('width',(b.w+20)*scale);r.setAttribute('height',(H/scale-80)*scale);
+    r.setAttribute('fill','#ffffff');r.setAttribute('class','layer-band');r.setAttribute('rx',8);
+    svg.appendChild(r);
+    var t=document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x',offsetX+(b.x+b.w/2)*scale);t.setAttribute('y',offsetY+42*scale);
+    t.setAttribute('class','layer-title');t.textContent=b.l;svg.appendChild(t);
+  });
+
+  // Edges
+  var eg=document.createElementNS('http://www.w3.org/2000/svg','g');eg.id='edges';svg.appendChild(eg);
+  edges.forEach(function(e,i){
+    var fr=nodes.find(function(n){return n.id===e.from});
+    var to=nodes.find(function(n){return n.id===e.to});
+    if(!fr||!to)return;
+    var x1=offsetX+(fr.x+fr.w)*scale,y1=offsetY+(fr.y+fr.h/2)*scale;
+    var x2=offsetX+to.x*scale,y2=offsetY+(to.y+to.h/2)*scale;
+    var dx=x2-x1,cx1=x1+dx*0.4,cx2=x2-dx*0.4;
+    var p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d','M'+x1+','+y1+' C'+cx1+','+y1+' '+cx2+','+y2+' '+x2+','+y2);
+    p.setAttribute('class','edge');p.setAttribute('stroke',e.color||'#555');
+    p.setAttribute('data-idx',i);if(e.dashed)p.setAttribute('stroke-dasharray','6,4');
+    eg.appendChild(p);
+    // Arrow
+    var ang=Math.atan2(y2-(y1+y2)/2,x2-(x1+x2)/2);
+    var ar=document.createElementNS('http://www.w3.org/2000/svg','polygon');
+    var s=5;
+    ar.setAttribute('points',x2+','+y2+' '+(x2-s*Math.cos(ang-0.4))+','+(y2-s*Math.sin(ang-0.4))+' '+(x2-s*Math.cos(ang+0.4))+','+(y2-s*Math.sin(ang+0.4)));
+    ar.setAttribute('fill',e.color||'#555');ar.setAttribute('class','edge');ar.setAttribute('data-idx',i);ar.setAttribute('opacity','0.6');
+    eg.appendChild(ar);
+    if(e.label){
+      var t=document.createElementNS('http://www.w3.org/2000/svg','text');
+      t.setAttribute('x',(x1+x2)/2);t.setAttribute('y',(y1+y2)/2-6);
+      t.setAttribute('class','edge-label');t.setAttribute('data-idx',i);
+      t.textContent=e.label;eg.appendChild(t);
+    }
+  });
+
+  // Nodes
+  var ng=document.createElementNS('http://www.w3.org/2000/svg','g');ng.id='nodes';svg.appendChild(ng);
+  nodes.forEach(function(n){
+    var g=document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.setAttribute('class','node');g.setAttribute('data-id',n.id);g.setAttribute('data-layer',n.layer);
+    var r=document.createElementNS('http://www.w3.org/2000/svg','rect');
+    r.setAttribute('x',offsetX+n.x*scale);r.setAttribute('y',offsetY+n.y*scale);
+    r.setAttribute('width',n.w*scale);r.setAttribute('height',n.h*scale);
+    r.setAttribute('fill',n.color+'18');r.setAttribute('stroke',n.color);r.style.color=n.color;
+    g.appendChild(r);
+    var lines=n.lines||[n.title];
+    lines.forEach(function(line,i){
+      var t=document.createElementNS('http://www.w3.org/2000/svg','text');
+      t.setAttribute('x',offsetX+(n.x+n.w/2)*scale);
+      var totalH=lines.length*13,startY=n.y+n.h/2-totalH/2+10;
+      t.setAttribute('y',offsetY+(startY+i*13)*scale);
+      t.setAttribute('dominant-baseline','middle');
+      if(i===0)t.setAttribute('class','node-title');
+      t.textContent=line;g.appendChild(t);
+    });
+    g.addEventListener('mouseenter',function(ev){
+      tooltip.style.display='block';
+      tooltip.innerHTML='<div class="title">'+n.title+'</div><div class="desc">'+n.desc.replace(/\n/g,'<br>')+'</div>';
+    });
+    g.addEventListener('mousemove',function(ev){
+      var tx=ev.clientX+15,ty=ev.clientY+15;
+      if(tx+320>window.innerWidth)tx=ev.clientX-335;
+      if(ty+200>window.innerHeight)ty=ev.clientY-200;
+      tooltip.style.left=tx+'px';tooltip.style.top=ty+'px';
+    });
+    g.addEventListener('mouseleave',function(){tooltip.style.display='none';});
+    g.addEventListener('click',function(ev){ev.stopPropagation();highlightPaths(n.id);showInfo(n);});
+    ng.appendChild(g);
+  });
+}
+
+function highlightPaths(nodeId){
+  var connected=new Set([nodeId]),edgeIdxs=new Set();
+  function fwd(id){edges.forEach(function(e,i){if(e.from===id){edgeIdxs.add(i);if(!connected.has(e.to)){connected.add(e.to);fwd(e.to);}}});}
+  function bwd(id){edges.forEach(function(e,i){if(e.to===id){edgeIdxs.add(i);if(!connected.has(e.from)){connected.add(e.from);bwd(e.from);}}});}
+  fwd(nodeId);bwd(nodeId);
+  document.querySelectorAll('.node').forEach(function(g){
+    if(connected.has(g.getAttribute('data-id'))){g.classList.add('highlight');g.classList.remove('dim');}
+    else{g.classList.add('dim');g.classList.remove('highlight');}
+  });
+  document.querySelectorAll('#edges path,#edges polygon').forEach(function(el){
+    var i=parseInt(el.getAttribute('data-idx'));
+    if(edgeIdxs.has(i)){el.classList.add('highlight-edge');el.classList.remove('dim');}
+    else{el.classList.add('dim');el.classList.remove('highlight-edge');}
+  });
+  document.querySelectorAll('#edges text').forEach(function(el){
+    var i=parseInt(el.getAttribute('data-idx'));
+    if(edgeIdxs.has(i))el.classList.remove('dim-label');else el.classList.add('dim-label');
+  });
+}
+
+function showInfo(n){
+  var p=document.getElementById('info-panel');
+  p.querySelector('.ptitle').textContent=n.title;
+  p.querySelector('.pcontent').innerHTML=n.desc.replace(/\n/g,'<br>');
+  p.style.display='block';
+}
+
+function resetHL(){
+  document.querySelectorAll('.highlight,.highlight-edge').forEach(function(el){el.classList.remove('highlight','highlight-edge');});
+  document.querySelectorAll('.dim,.dim-label').forEach(function(el){el.classList.remove('dim','dim-label');});
+  document.getElementById('info-panel').style.display='none';
+}
+
+svg.addEventListener('click',function(ev){
+  if(ev.target===svg||(ev.target.tagName==='rect'&&ev.target.classList.contains('layer-band')))resetHL();
+});
+
+function filterLayer(type,btn){
+  document.querySelectorAll('#controls button').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');resetHL();
+  if(type==='all')return;
+  var m={'input':['input'],'compute':['compute'],'output':['output'],'expert':['expert']};
+  var active=m[type]||[];
+  document.querySelectorAll('.node').forEach(function(g){
+    if(active.indexOf(g.getAttribute('data-layer'))>=0)g.classList.remove('dim');
+    else g.classList.add('dim');
+  });
+}
+
+render();
+window.addEventListener('resize',render);
+</script>
+</body>
+</html>
